@@ -79,7 +79,7 @@ class Bot(pygame.sprite.Sprite):
     def __init__(self, cords: tuple):
         super(Bot, self).__init__()
         # self.surf = pygame.Surface((maze_tile, maze_tile))
-        self.surf = pygame.image.load("Art/Greben_Bot.JPG").convert()
+        self.surf = pygame.image.load("Art/SHE_SCREAM.JPG").convert()
         self.rect = self.surf.get_rect()
         self.rect.topleft = cords
         self.offset = int(maze_tile / 2)
