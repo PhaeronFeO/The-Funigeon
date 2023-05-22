@@ -354,34 +354,6 @@ def explore2(current_point: tuple, end_point: tuple):
             current_point = [current_point[0] + direction[0], current_point[1] + direction[1]]
 
 
-def node_list():
-    nodes = []
-    for x in range(len(maze)):
-        for y in range(len(maze[x])):
-            if len(maze[x][y]) != 3: # Is a node
-                nodes.append([[x, y]])
-                for d in maze[x][y]:
-                    if d != 4:
-                        direction = [0, 0]
-                        route = []
-                        while True:
-                            dt = convert_maze(d)
-                            direction[0] += dt[0]
-                            direction[1] += dt[1]
-                            seg = maze[x + direction[0]][y + direction[1]]
-                            print([x + direction[0], y + direction[1]], direction)
-                            route.append([x + direction[0], y + direction[1]])
-                            if len(seg) != 3: # Is a node
-                                nodes[-1].append([[x + direction[0], y + direction[1]], route])
-                                break
-                            else:
-                                for d in seg:
-                                    if d != 4 or (8 - d) != convert_direction(dt):
-                                        break
-                print(nodes[-1], maze[x][y])
-    return nodes
-
-
 # noinspection PyUnresolvedReferences
 def exit_gen():
     p_start = maze_cord([2 * maze_tile - (maze_tile / 2) / 2, HEIGHT - maze_tile - (maze_tile / 2) / 2])
@@ -405,8 +377,6 @@ obstacles = pygame.sprite.Group()
 lights = pygame.sprite.Group()
 
 maze = generate_maze(WIDTH, HEIGHT, maze_tile)
-nodes_list = node_list()
-print(nodes_list)
 
 exit_tile, bot = exit_gen()
 
