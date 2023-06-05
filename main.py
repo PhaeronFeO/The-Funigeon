@@ -462,6 +462,9 @@ class JumpPlayer(pygame.sprite.Sprite):
         self.rect.bottomright = cords
         self.cords = cords
         self.obstacle_group = obstacles
+        self.Air = False
+        self.Airs = 0
+        self.AirDelay = int(FrameRate / 3)
 
     def collisions(self, start_point, end_point, collision_list):
         start_point = [start_point[0], start_point[1]]
@@ -489,6 +492,8 @@ class JumpPlayer(pygame.sprite.Sprite):
                         >= abs(cp[0] - start_point[0]) + abs(cp[1] - start_point[1]):
                     end_point = cp
                     self.Velocity[1] = collided.velocity[1]
+                    self.Air = True
+                    self.Airs = 0
             if min(start_point[1], end_point[1]) <= round((collision_pnt[0] * m) + c) <= max(start_point[1], end_point[1]):
                 cp = (collision_pnt[0], (collision_pnt[0] * m) + c)
                 if abs(end_point[0] - start_point[0]) >= abs(cp[0] - start_point[0]) and abs(
@@ -502,21 +507,42 @@ class JumpPlayer(pygame.sprite.Sprite):
         self.rect.right = self.cords[0]
         self.rect.bottom = self.cords[1]
 
+    def stood_on(self, obstacles):
+        self.rect.move_ip(0, 1)
+        collision_list = pygame.sprite.spritecollide(self, obstacles, False)
+        self.rect.move_ip(0, -1)
+        for coll_obj in collision_list:
+            if coll_obj.Crumble:
+                coll_obj.crumble_check(obstacles)
+
     def update(self, downforce, damage_group, obstacles):
         pressed_keys = pygame.key.get_pressed()
         self.rect.move_ip(0, 1)
         collision_list = pygame.sprite.spritecollide(self, obstacles, False)
         self.rect.move_ip(0, -1)
+        for coll_obj in collision_list:
+            if coll_obj.Crumble:
+                coll_obj.crumble_check(obstacles)
         if len(collision_list) > 0 and self.Velocity[1] == 0:  # Is touching ground
             if pressed_keys[K_LEFT]:
                 self.Velocity[0] += -1 * self.Speed
             if pressed_keys[K_RIGHT]:
                 self.Velocity[0] += self.Speed
             self.Velocity[0] += self.Friction * -1 * self.Velocity[0]
-            if pressed_keys[K_SPACE]:
-                self.Velocity[1] -= self.Jump
+            if pressed_keys[K_SPACE] and self.Air:
+                self.Air = False
+                self.Velocity[1] = -1 * self.Jump
+                self.Airs = 2
+                self.AirDelay = int(FrameRate / 3)
         else:
-            self.Velocity[1] += self.G + downforce
+            if pressed_keys[K_SPACE] and self.Airs > 0 >= self.AirDelay:
+                self.Airs -= 1
+                self.Velocity[1] = -1 * int(self.Jump / 2)
+                self.AirDelay = int(FrameRate / 3)
+            else:
+                self.Velocity[1] += self.G + downforce
+                if self.AirDelay > 0 and self.Airs > 0:
+                    self.AirDelay -= 1
         px, py = self.Velocity[0], self.Velocity[1]
         start_cord = self.rect.bottomright
         self.cords = [self.cords[0] + px, self.cords[1] + py]
@@ -537,9 +563,6 @@ class JumpPlayer(pygame.sprite.Sprite):
         if self.rect.right > WIDTH:
             self.rect.right = WIDTH
             self.Velocity[0] = 0
-        if self.rect.top <= 0:
-            self.rect.top = 0
-            self.Velocity[1] = 0
         if self.rect.bottom >= HEIGHT:
             self.rect.bottom = HEIGHT
             self.Velocity[1] = 0
@@ -554,6 +577,36 @@ class JumpWall(pygame.sprite.Sprite):
         self.rect = self.surf.get_rect()
         self.rect.bottomright = cords
         self.velocity = [0, 0]
+        self.Crumble = False
+
+    def update(self, obstacles):
+        pass
+
+
+class CrumbleWall(JumpWall):
+    def __init__(self, cords, dims, col):
+        super(CrumbleWall, self).__init__(cords, dims, col)
+        self.surf.fill((128, 0, 0))
+        self.Crumble = True
+        self.CrumbleTime = FrameRate * 4
+
+    def crumble_check(self, obstacles):
+        if self.CrumbleTime <= 0:
+            print("DIES OF DEATH")
+            pass  # Remove from obstacles
+        else:
+            self.CrumbleTime -= 4
+
+    def update(self, obstacles):
+        if self.CrumbleTime <= 0:
+            obstacles.remove(self)
+            self.surf.fill((48, 0, 0))
+        if self.CrumbleTime < FrameRate * 4:
+            self.CrumbleTime += 1
+        elif self.CrumbleTime >= FrameRate * 4:
+            obstacles.add(self)
+            self.surf.fill((128, 0, 0))
+            self.CrumbleTime = FrameRate * 4
 
 
 class JumpGame:
@@ -561,17 +614,24 @@ class JumpGame:
         self.all_sprites = pygame.sprite.Group()
         self.obstacles = pygame.sprite.Group()
         self.liquids = pygame.sprite.Group()
+        self.walls = pygame.sprite.Group()
         self.create_wall([W, H], [W, 50])
-        self.create_wall([W/2, H - (jump_height - 5)/2 - 15], [100, 15])
+        self.create_wall([W/2, H - (jump_height - 5) - 15], [100, 15], crumble=True)
+        self.create_wall([W / 4, H - (jump_height - 5) - 15], [100, 15])
+        self.create_wall([3 * W / 4, H - 2 * (jump_height - 5) - 15], [100, 15])
         jump_speed = 4 * jump_height / FrameRate
         self.Gravity = 2 * jump_speed / FrameRate
         self.Jump = jump_height - 5
         self.player = JumpPlayer([int(W / 2), H - 200], 20, 5, jump_speed, self.Gravity, self.obstacles)
 
-    def create_wall(self, cords, dims):
-        wall = JumpWall(cords, dims, (128, 128, 128))
+    def create_wall(self, cords, dims, crumble=False):
+        if crumble:
+            wall = CrumbleWall(cords, dims, (128, 128, 128))
+        else:
+            wall = JumpWall(cords, dims, (128, 128, 128))
         self.all_sprites.add(wall)
         self.obstacles.add(wall)
+        self.walls.add(wall)
 
     def game_loop(self):
         game = True
@@ -584,6 +644,9 @@ class JumpGame:
             screen.blit(background, (0, 0))
             for s in self.all_sprites:
                 screen.blit(s.surf, s.rect)
+
+            for obstacle in self.walls:
+                obstacle.update(self.obstacles)
 
             self.player.update(0, self.liquids, self.obstacles)
             screen.blit(self.player.surf, self.player.rect)
@@ -639,6 +702,7 @@ class Emu:
                     if self.texts[t][2] == self.Highlight:
                         self.change_text(self.texts[t])
                 screen.blit(self.texts[t][0], self.texts[t][1])
+
             for s in self.all_sprites:
                 screen.blit(s.surf, s.rect)
 
