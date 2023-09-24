@@ -4,6 +4,9 @@ import pygame.mixer
 from pygame.locals import *
 from random import choice, randint
 from time import time
+from math import sqrt
+from os import getcwd
+cwd = getcwd()
 
 
 class MazePlayer(pygame.sprite.Sprite):
@@ -464,7 +467,6 @@ class JumpPlayer(pygame.sprite.Sprite):
         self.obstacle_group = obstacles
         self.Air = False
         self.Airs = 0
-        self.AirDelay = int(FrameRate / 3)
 
     def collisions(self, start_point, end_point, collision_list):
         start_point = [start_point[0], start_point[1]]
@@ -478,22 +480,27 @@ class JumpPlayer(pygame.sprite.Sprite):
             offset[0] -= self.dim
             start_point[0] += offset[0]
             end_point[0] += offset[0]
-        m = end_point[1] - start_point[1] / end_point[0] - start_point[0]
-        c = start_point[1] - m * start_point[0]
+        if end_point[0] - start_point[0] == 0:
+            self.axis_collision(start_point, end_point, offset, collision_list, 1)
+        elif end_point[1] - start_point[1] == 0:
+            self.axis_collision(start_point, end_point, offset, collision_list, 0)
+        else:
+            self.gradient_collision(start_point, end_point, offset, collision_list)
+
+    def gradient_collision(self, start_point, end_point, offset, collision_list):
+        m = (end_point[1] - start_point[1]) / (end_point[0] - start_point[0])
+        c = start_point[1] - (m * start_point[0])
         for collided in collision_list:
             collision_pnt = [collided.rect.left, collided.rect.top]
             if end_point[1] - start_point[1] < 0:
                 collision_pnt[1] = collided.rect.bottom
             if end_point[0] - start_point[0] < 0:
                 collision_pnt[0] = collided.rect.right
-            if min(start_point[0], end_point[0]) <= round((collision_pnt[1] - c) / m) <= max(start_point[0], end_point[0]):
+            if min(start_point[0], end_point[0]) <= round((collision_pnt[1] - c) / m) <= max(start_point[0], end_point[0]):  # Collided with something against on x axis
                 cp = ((collision_pnt[1] - c) / m, collision_pnt[1])
-                if abs(end_point[0] - start_point[0]) + abs(end_point[1] - start_point[1]) \
-                        >= abs(cp[0] - start_point[0]) + abs(cp[1] - start_point[1]):
+                if abs(end_point[0] - start_point[0]) + abs(end_point[1] - start_point[1]) >= abs(cp[0] - start_point[0]) + abs(cp[1] - start_point[1]):
                     end_point = cp
                     self.Velocity[1] = collided.velocity[1]
-                    self.Air = True
-                    self.Airs = 0
             if min(start_point[1], end_point[1]) <= round((collision_pnt[0] * m) + c) <= max(start_point[1], end_point[1]):
                 cp = (collision_pnt[0], (collision_pnt[0] * m) + c)
                 if abs(end_point[0] - start_point[0]) >= abs(cp[0] - start_point[0]) and abs(
@@ -502,27 +509,37 @@ class JumpPlayer(pygame.sprite.Sprite):
                     self.Velocity[0] = collided.velocity[0]
         self.set_cords([end_point[0] - offset[0], end_point[1] - offset[1]])
 
+    def axis_collision(self, start_point, end_point, offset, collision_list, opp_axis):
+        setpoint = start_point[1 - opp_axis]
+        for collided in collision_list:
+            if opp_axis == 1:
+                collision_limits = [collided.rect.left, collided.rect.right, collided.rect.top, collided.rect.bottom]
+            else:
+                collision_limits = [collided.rect.top, collided.rect.bottom, collided.rect.left, collided.rect.right]
+            if collision_limits[0] <= setpoint <= collision_limits[1]:
+                if start_point[opp_axis] < end_point[opp_axis]:
+                    end_point[opp_axis] = collision_limits[2]
+                else:
+                    end_point[opp_axis] = collision_limits[3]
+                self.Velocity[opp_axis] = collided.velocity[opp_axis]
+                self.Air = True
+                self.Airs = 0
+        self.set_cords([end_point[0] - offset[0], end_point[1] - offset[1]])
+
     def set_cords(self, new_cords):
         self.cords = [new_cords[0], new_cords[1]]
         self.rect.right = self.cords[0]
         self.rect.bottom = self.cords[1]
 
-    def stood_on(self, obstacles):
-        self.rect.move_ip(0, 1)
-        collision_list = pygame.sprite.spritecollide(self, obstacles, False)
-        self.rect.move_ip(0, -1)
-        for coll_obj in collision_list:
-            if coll_obj.Crumble:
-                coll_obj.crumble_check(obstacles)
-
-    def update(self, downforce, damage_group, obstacles):
+    def move(self, obstacles):
         pressed_keys = pygame.key.get_pressed()
         self.rect.move_ip(0, 1)
         collision_list = pygame.sprite.spritecollide(self, obstacles, False)
         self.rect.move_ip(0, -1)
+        friction_move = [0, 0]
         for coll_obj in collision_list:
-            if coll_obj.Crumble:
-                coll_obj.crumble_check(obstacles)
+            friction_move[0] += coll_obj.velocity[0]
+            friction_move[1] += coll_obj.velocity[1]
         if len(collision_list) > 0 and self.Velocity[1] == 0:  # Is touching ground
             if pressed_keys[K_LEFT]:
                 self.Velocity[0] += -1 * self.Speed
@@ -532,18 +549,39 @@ class JumpPlayer(pygame.sprite.Sprite):
             if pressed_keys[K_SPACE] and self.Air:
                 self.Air = False
                 self.Velocity[1] = -1 * self.Jump
+                self.Velocity[1] += friction_move[1]
+                self.Velocity[0] += friction_move[0]
                 self.Airs = 2
-                self.AirDelay = int(FrameRate / 3)
         else:
-            if pressed_keys[K_SPACE] and self.Airs > 0 >= self.AirDelay:
+            if pressed_keys[K_SPACE] and self.Airs > 0:
                 self.Airs -= 1
                 self.Velocity[1] = -1 * int(self.Jump / 2)
-                self.AirDelay = int(FrameRate / 3)
-            else:
-                self.Velocity[1] += self.G + downforce
-                if self.AirDelay > 0 and self.Airs > 0:
-                    self.AirDelay -= 1
-        px, py = self.Velocity[0], self.Velocity[1]
+
+    def update(self, damage_group, obstacles, exitwall):
+        downforce = 0
+        if self.rect.colliderect(exitwall.rect):
+            return 2
+        self.rect.move_ip(0, 1)
+        collision_list = pygame.sprite.spritecollide(self, obstacles, False)
+        self.rect.move_ip(0, -1)
+        friction_move = [0, 0]
+        for coll_obj in collision_list:
+            if coll_obj.Crumble:
+                coll_obj.crumble_check()
+            friction_move[0] += coll_obj.velocity[0]
+            friction_move[1] += coll_obj.velocity[1]
+        if len(collision_list) > 0 and self.Velocity[1] == 0:  # Touching ground
+            self.Air = True
+            self.Airs = 0
+            pressed_keys = pygame.key.get_pressed()
+            if pressed_keys[K_LEFT]:
+                self.Velocity[0] += -1 * self.Speed
+            if pressed_keys[K_RIGHT]:
+                self.Velocity[0] += self.Speed
+            self.Velocity[0] += self.Friction * -1 * self.Velocity[0]
+        else:
+            self.Velocity[1] += self.G + downforce
+        px, py = self.Velocity[0] + friction_move[0], self.Velocity[1] + friction_move[1]
         start_cord = self.rect.bottomright
         self.cords = [self.cords[0] + px, self.cords[1] + py]
         self.set_cords(self.cords)
@@ -564,9 +602,7 @@ class JumpPlayer(pygame.sprite.Sprite):
             self.rect.right = WIDTH
             self.Velocity[0] = 0
         if self.rect.bottom >= HEIGHT:
-            self.rect.bottom = HEIGHT
-            self.Velocity[1] = 0
-        return 0
+            return 1
 
 
 class JumpWall(pygame.sprite.Sprite):
@@ -586,11 +622,10 @@ class JumpWall(pygame.sprite.Sprite):
 class CrumbleWall(JumpWall):
     def __init__(self, cords, dims, col):
         super(CrumbleWall, self).__init__(cords, dims, col)
-        self.surf.fill((128, 0, 0))
         self.Crumble = True
         self.CrumbleTime = FrameRate * 4
 
-    def crumble_check(self, obstacles):
+    def crumble_check(self):
         if self.CrumbleTime <= 0:
             print("DIES OF DEATH")
             pass  # Remove from obstacles
@@ -609,37 +644,127 @@ class CrumbleWall(JumpWall):
             self.CrumbleTime = FrameRate * 4
 
 
+class MovingWall(JumpWall):
+    def __init__(self, cords, dims, col, move_cords, time_per_legnth):
+        super(MovingWall, self).__init__(cords, dims, col)
+        self.velocity = [(move_cords[0] - cords[0]) / (FrameRate / time_per_legnth),
+                         (move_cords[1] - cords[1]) / (FrameRate / time_per_legnth)]
+        self.Coords = cords
+        self.destination = [tuple(move_cords), tuple(cords)]
+        del cords, move_cords
+
+    def update(self, obstacles):
+        if tuple(self.Coords) == self.destination[0]:
+            temp = self.destination[0]
+            self.destination[0] = self.destination[1]
+            self.destination[1] = temp
+            del temp
+            self.velocity[0] *= -1
+            self.velocity[1] *= -1
+        self.Coords[0] += self.velocity[0]
+        self.Coords[1] += self.velocity[1]
+        self.rect.bottomright = self.Coords
+
+
+class TheCoomer(pygame.sprite.Sprite):
+    def __init__(self, cords):
+        super(TheCoomer, self).__init__()
+        self.surf = pygame.image.load("Art/COOM_KING.png").convert()
+        alpha_surf = pygame.Surface(self.surf.get_size(), pygame.SRCALPHA)
+        alpha_surf.fill((128, 128, 128, 90))
+        self.surf.blit(alpha_surf, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+        self.rect = self.surf.get_rect()
+        self.rect.center = cords
+
+    def update_transparency(self):
+        self.surf = pygame.image.load("Art/COOM_KING.png").convert()
+        alpha_surf = pygame.Surface(self.surf.get_size(), pygame.SRCALPHA)
+        alpha_surf.fill((128, 128, 128, 90))
+        self.surf.blit(alpha_surf, (0, 0), special_flags=pygame.BLEND_RGB_MULT)
+
+
 class JumpGame:
-    def __init__(self, W, H, jump_height):
+    def __init__(self):
+        jump_height = int((HEIGHT - 100) / 4)
+        jump_speed = 4 * jump_height / FrameRate
+        self.Gravity = 2 * jump_speed / FrameRate
         self.all_sprites = pygame.sprite.Group()
         self.obstacles = pygame.sprite.Group()
         self.liquids = pygame.sprite.Group()
         self.walls = pygame.sprite.Group()
-        self.create_wall([W, H], [W, 50])
-        self.create_wall([W/2, H - (jump_height - 5) - 15], [100, 15], crumble=True)
-        self.create_wall([W / 4, H - (jump_height - 5) - 15], [100, 15])
-        self.create_wall([3 * W / 4, H - 2 * (jump_height - 5) - 15], [100, 15])
-        jump_speed = 4 * jump_height / FrameRate
-        self.Gravity = 2 * jump_speed / FrameRate
-        self.Jump = jump_height - 5
-        self.player = JumpPlayer([int(W / 2), H - 200], 20, 5, jump_speed, self.Gravity, self.obstacles)
+        self.player = JumpPlayer([int(WIDTH / 2), HEIGHT - 200], 20, 5, jump_speed, self.Gravity, self.obstacles)
+        self.CLOSEEXIT = pygame.USEREVENT + 1
+        self.MOVE_PNG = pygame.USEREVENT + 2
+        self.exitwall = None
+        self.levels = ["Start.txt", "First.txt"]
+        self.level_num = 0
+        self.load_level()
 
-    def create_wall(self, cords, dims, crumble=False):
+    def create_wall(self, cords, dims, color=(128, 128, 128), crumble=False, moving=None):
+        if moving is None:
+            moving = [0, 0]
         if crumble:
-            wall = CrumbleWall(cords, dims, (128, 128, 128))
+            wall = CrumbleWall(cords, dims, (128, 0, 0))
+        elif moving[0] != 0 or moving[1] != 0:
+            wall = MovingWall(cords, dims, color, [cords[0] + moving[0], cords[1] + moving[1]], moving[2])
         else:
-            wall = JumpWall(cords, dims, (128, 128, 128))
+            wall = JumpWall(cords, dims, color)
         self.all_sprites.add(wall)
         self.obstacles.add(wall)
         self.walls.add(wall)
+        return wall
+
+    def load_level(self):
+        pygame.time.set_timer(self.CLOSEEXIT, 500)
+        for sp in self.all_sprites:
+            sp.kill()
+            del sp
+        self.create_wall([WIDTH - 100, 50], [WIDTH - 150, 50])  # Top border
+        self.create_wall([WIDTH, HEIGHT], [50, HEIGHT]) # Right border
+        self.create_wall([50, HEIGHT], [50, HEIGHT])  # Left border
+        self.exitwall = self.create_wall([WIDTH - 50, 50], [50, 50], color=(128, 128, 0))
+        self.obstacles.remove(self.exitwall)
+        self.walls.remove(self.exitwall)
+        self.player.set_cords([50, HEIGHT])
+        self.player.Velocity = [2, -10]
+        self.the_horror = None
+        if self.level_num == 0:
+            self.the_horror = TheCoomer([WIDTH/2, HEIGHT/2])
+            self.all_sprites.add(self.the_horror)
+        else:
+            self.the_horror = TheCoomer([WIDTH / 2, HEIGHT + 500])
+            self.all_sprites.add(self.the_horror)
+            pygame.time.set_timer(self.MOVE_PNG, 17)
+        with open(cwd + "\\Levels\\JumpGame\\" + self.levels[self.level_num], "r") as raw_file:
+            wall_list = raw_file.read().split("\n")
+        for wall in wall_list:
+            exec("self.create_wall(" + wall + ")")
 
     def game_loop(self):
         game = True
         dead = False
         while game:  # Run until the user asks to quit
             for event in pygame.event.get():
-                if event.type == pygame.QUIT:  # Did the user click the window close button?
+                if event.type == QUIT:  # Did the user click the window close button?
                     return False
+                elif event.type == self.CLOSEEXIT:
+                    self.create_wall([100, HEIGHT], [50, 50])
+                    pygame.time.set_timer(self.CLOSEEXIT, 0)
+                elif event.type == KEYDOWN:
+                    self.player.move(self.obstacles)
+                elif event.type == self.MOVE_PNG:
+                    current_y = self.the_horror.rect.centery
+                    if current_y <= HEIGHT / 2:
+                        pygame.time.set_timer(self.MOVE_PNG, 0)
+                    else:
+                        self.the_horror.rect.move_ip(0, -1)
+
+            result = self.player.update(self.liquids, self.obstacles, self.exitwall)
+            if result == 2:  # If reached exit
+                self.level_num = (self.level_num + 1) % len(self.levels)
+                self.load_level()
+            elif result == 1:  # If died
+                self.load_level()
 
             screen.blit(background, (0, 0))
             for s in self.all_sprites:
@@ -648,8 +773,188 @@ class JumpGame:
             for obstacle in self.walls:
                 obstacle.update(self.obstacles)
 
-            self.player.update(0, self.liquids, self.obstacles)
             screen.blit(self.player.surf, self.player.rect)
+
+            clock.tick(FrameRate)
+            pygame.display.flip()  # Flip the display
+
+
+class BlunderPlayer(pygame.sprite.Sprite):
+    def __init__(self, cords: tuple, size):
+        super(BlunderPlayer, self).__init__()
+        self.Speed = 3
+        self.surf = pygame.Surface((size, size))
+        self.surf.fill((255, 0, 0))
+        self.rect = self.surf.get_rect()
+        self.rect.center = cords
+
+    def update(self, limits):
+        pressed_keys = pygame.key.get_pressed()
+        px, py = 0, 0
+        if pressed_keys[K_UP]:
+            py += -1 * self.Speed
+        if pressed_keys[K_DOWN]:
+            py += self.Speed
+        if pressed_keys[K_LEFT]:
+            px += -1 * self.Speed
+        if pressed_keys[K_RIGHT]:
+            px += self.Speed
+        if (pressed_keys[K_LEFT] or pressed_keys[K_RIGHT]) and (pressed_keys[K_UP] or pressed_keys[K_DOWN]):
+            px /= sqrt(2)
+            py /= sqrt(2)
+        self.rect.move_ip(px, py)
+
+        if self.rect.left < limits[0][0]:
+            self.rect.left = limits[0][0]
+        if self.rect.right > limits[1][0]:
+            self.rect.right = limits[1][0]
+        if self.rect.top < limits[0][1]:
+            self.rect.top = limits[0][1]
+        if self.rect.bottom > limits[1][1]:
+            self.rect.bottom = limits[1][1]
+
+        if self.rect.left < 0:
+            self.rect.left = 0
+        if self.rect.right > WIDTH:
+            self.rect.right = WIDTH
+        if self.rect.top <= 0:
+            self.rect.top = 0
+        if self.rect.bottom >= HEIGHT:
+            self.rect.bottom = HEIGHT
+
+
+class BlunderBox(pygame.sprite.Sprite):
+    def __init__(self, topleft: tuple, bottomright: tuple, thickness, min_size, col=(255, 255, 255)):
+        super(BlunderBox, self).__init__()
+        self.t = thickness
+        self.min_size = min_size
+        self.surf = pygame.Surface((bottomright[0] - topleft[0], bottomright[1] - topleft[1]))
+        self.surf.fill(col)
+        pygame.draw.rect(self.surf, (0, 0, 0), [[self.t, self.t], [bottomright[0] - topleft[0] - self.t * 2, bottomright[1] - topleft[1] - self.t * 2]])
+        self.rect = self.surf.get_rect()
+        self.rect.bottomright = bottomright
+
+    def adjust(self, dx, dy):
+        topleft, bottomright = [self.rect.left - dx, self.rect.top - dy], [self.rect.right + dx, self.rect.bottom + dy]
+        if bottomright[0] - topleft[0] > self.min_size and bottomright[1] - topleft[1] > self.min_size:
+            self.surf = pygame.Surface((bottomright[0] - topleft[0], bottomright[1] - topleft[1]))
+            self.surf.fill((255, 255, 255))
+            pygame.draw.rect(self.surf, (0, 0, 0), [[self.t, self.t], [bottomright[0] - topleft[0] - self.t * 2,
+                                                                       bottomright[1] - topleft[1] - self.t * 2]])
+            self.rect = self.surf.get_rect()
+            self.rect.bottomright = bottomright
+            return True
+        else:
+            return False
+
+
+class AnimatedSprite(pygame.sprite.Sprite):
+    def __init__(self, size: tuple, cords, col: tuple):
+        super(AnimatedSprite, self).__init__()
+        self.surf = pygame.Surface(size)
+        self.surf.fill(col)
+        self.rect = self.surf.get_rect()
+        self.rect.center = cords
+
+
+class BlunderProjectile(pygame.sprite.Sprite):
+    def __init__(self, size: tuple, cords, col: tuple):
+        super(BlunderProjectile, self).__init__()
+        self.surf = pygame.Surface(size)
+        self.surf.fill(col)
+        self.rect = self.surf.get_rect()
+        self.rect.center = cords
+
+
+class BlunderTale:
+    def __init__(self):
+        self.all_sprites = pygame.sprite.Group()
+        self.text_sprites = []
+        box_dims = 200
+        y_offset = 125
+        thickness = 10
+        player_size = 15
+        self.texts = []
+        self.fight_default = [[int(WIDTH / 2) - (box_dims / 2), HEIGHT - (y_offset + box_dims)],
+                              [int(WIDTH/2) + (box_dims / 2), HEIGHT - y_offset]]
+        self.limits = [[self.fight_default[0][0] + thickness, self.fight_default[0][1] + thickness],
+                       [self.fight_default[1][0] - thickness, self.fight_default[1][1] - thickness]]
+        self.fight_default = self.limits
+        self.box = BlunderBox(self.fight_default[0], self.fight_default[1], thickness, thickness * 2 + player_size)
+        self.player = BlunderPlayer((WIDTH/2, HEIGHT - y_offset - (box_dims / 2)), player_size)
+        self.load_fight()
+
+    def main_menu(self):
+        pass
+
+    def create_text(self, txt, topleft, col=(150, 150, 150), box=False, gray=(150, 150, 150), high=(255, 255, 255), change=None):
+        if change is None:
+            change = [False, 0]
+        attack_text, rect = largeFont.render(txt, col)
+        rect.top = topleft[1]
+        rect.left = topleft[0]
+        self.text_sprites.append([attack_text, rect])
+        if box:
+            if change[0]:
+                self.texts[change[1]][7].kill()
+            outline = BlunderBox((topleft[0] - 15, topleft[1] - 15), (topleft[0] + 15 + attack_text.get_width(), topleft[1] + 15 + attack_text.get_height()), 8, 5, col=col)
+            self.all_sprites.add(outline)
+        if change[0]:
+            self.texts.pop(change[1])
+        self.texts.append([txt, rect, col, box, gray, high, attack_text, outline])
+        # Text, Rect, CurrentCol, Box?, InactiveCol, HighlightCol
+
+    def adjust_box(self, dx, dy):
+        if dx != 0 or dy != 0:
+            if self.box.adjust(dx, dy):
+                self.limits = [[self.limits[0][0] - dx, self.limits[0][1] - dy],
+                               [self.limits[1][0] + dx, self.limits[1][1] + dy]]
+
+    def load_fight(self):
+        self.all_sprites = pygame.sprite.Group()
+        self.all_sprites.add(self.box)
+        self.create_text("JIZZ", [152, HEIGHT - 70], col=(255, 114, 0), box=True, gray=(255, 114, 0), high=(255, 255, 0))
+        self.create_text("SHOWBIZ", [322, HEIGHT - 70], col=(255, 114, 0), box=True, gray=(255, 114, 0), high=(255, 255, 0))
+        self.create_text("SHIZ", [(WIDTH / 2) + 10, HEIGHT - 70], col=(255, 114, 0), box=True, gray=(255, 114, 0), high=(255, 255, 0))
+        self.create_text("RIZZ", [842, HEIGHT - 70], col=(255, 114, 0), box=True, gray=(255, 114, 0), high=(255, 255, 0))
+        self.all_sprites.add(AnimatedSprite((100, 100), (WIDTH/2, (HEIGHT/2) - 100), (255, 255, 255)))
+
+    def game_loop(self):
+        game = True
+        fight = False
+        while game:  # Run until the user asks to quit
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:  # Did the user click the window close button?
+                    return False
+
+            screen.blit(background, (0, 0))
+
+            if not fight:  # Not fight phase
+                self.adjust_box(self.limits[0][0] - 50, 0)
+
+            for s in self.all_sprites:
+                screen.blit(s.surf, s.rect)
+
+            for t in range(len(self.texts)):
+                if self.texts[t][1].collidepoint(pygame.mouse.get_pos()):
+                    if pygame.mouse.get_pressed(num_buttons=3)[0] and not fight:
+                        print(self.texts[t][0], "PRESSED")
+                    else:
+                        if self.texts[t][2] == self.texts[t][4]:  # Highlights it
+                            self.texts[t][2] = self.texts[t][5]
+                            self.create_text(self.texts[t][0], self.texts[t][1], col=self.texts[t][2], box=self.texts[t][3],
+                                             gray=self.texts[t][4], high=self.texts[t][5], change=[True, t])
+                else:
+                    if self.texts[t][2] == self.texts[t][5]:  # Grays it
+                        self.texts[t][2] = self.texts[t][4]
+                        self.create_text(self.texts[t][0], self.texts[t][1], col=self.texts[t][2], box=self.texts[t][3],
+                                         gray=self.texts[t][4], high=self.texts[t][5], change=[True, t])
+                screen.blit(self.texts[t][6], self.texts[t][1])
+            if fight:  # Fight phase
+                self.player.update(self.limits)
+                screen.blit(self.player.surf, self.player.rect)
+                for text in self.text_sprites:
+                    screen.blit(text[0], text[1])
 
             clock.tick(FrameRate)
             pygame.display.flip()  # Flip the display
@@ -710,8 +1015,8 @@ class Emu:
             pygame.display.flip()  # Flip the display
 
 
-WIDTH = 1200
-HEIGHT = 600
+WIDTH = 1300
+HEIGHT = 700
 FrameRate = 60
 clock = pygame.time.Clock()
 pygame.init()
@@ -727,8 +1032,8 @@ if __name__ == "__main__":
     while True:
         gaming = True
         main_game = Emu(["THE FUNIGEON",
-                         "1. THE SCATMAN'S A_MAZE_ING WORLD",
-                         "2. JUMP COOMER JUMP",
+                         "1. THE SCATMAN'S MAZE",
+                         "2. JUNK KING",
                          "3. BLUNDRTALE: RETURN OF THE RIZZ",
                          "Credits"])
         next_game = main_game.game_loop()
@@ -740,5 +1045,9 @@ if __name__ == "__main__":
                 gaming = main_game.game_loop()
         elif next_game == 2:
             while gaming:
-                main_game = JumpGame(WIDTH, HEIGHT, 150)
+                main_game = JumpGame()
+                gaming = main_game.game_loop()
+        elif next_game == 3:
+            while gaming:
+                main_game = BlunderTale()
                 gaming = main_game.game_loop()
