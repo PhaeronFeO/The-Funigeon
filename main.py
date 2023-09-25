@@ -882,26 +882,33 @@ class BlunderTale:
         self.fight_default = self.limits
         self.box = BlunderBox(self.fight_default[0], self.fight_default[1], thickness, thickness * 2 + player_size)
         self.player = BlunderPlayer((WIDTH/2, HEIGHT - y_offset - (box_dims / 2)), player_size)
-        self.load_fight()
+        self.FightTexts = []
+        self.load_fight("TestLvl")
 
     def main_menu(self):
         pass
 
-    def create_text(self, txt, topleft, col=(150, 150, 150), box=False, gray=(150, 150, 150), high=(255, 255, 255), change=None):
+    def create_text(self, txt, topleft, col=(150, 150, 150), box=False, gray=(150, 150, 150), high=(255, 255, 255), change=None, large=True):
         if change is None:
             change = [False, 0]
-        attack_text, rect = largeFont.render(txt, col)
+        if large:
+            attack_text, rect = largeFont.render(txt, col)
+        else:
+            attack_text, rect = smallFont.render(txt, col)
         rect.top = topleft[1]
         rect.left = topleft[0]
         self.text_sprites.append([attack_text, rect])
         if box:
             if change[0]:
-                self.texts[change[1]][7].kill()
+                self.texts[change[1]][7].kill()  # Kills previous outline
             outline = BlunderBox((topleft[0] - 15, topleft[1] - 15), (topleft[0] + 15 + attack_text.get_width(), topleft[1] + 15 + attack_text.get_height()), 8, 5, col=col)
             self.all_sprites.add(outline)
         if change[0]:
             self.texts.pop(change[1])
-        self.texts.append([txt, rect, col, box, gray, high, attack_text, outline])
+        if box:
+            self.texts.append([txt, rect, col, box, gray, high, attack_text, outline, large])
+        else:
+            self.texts.append([txt, rect, col, box, gray, high, attack_text, None, large])
         # Text, Rect, CurrentCol, Box?, InactiveCol, HighlightCol
 
     def adjust_box(self, dx, dy):
@@ -910,18 +917,23 @@ class BlunderTale:
                 self.limits = [[self.limits[0][0] - dx, self.limits[0][1] - dy],
                                [self.limits[1][0] + dx, self.limits[1][1] + dy]]
 
-    def load_fight(self):
+    def load_fight(self, level_name):
         self.all_sprites = pygame.sprite.Group()
         self.all_sprites.add(self.box)
         self.create_text("JIZZ", [152, HEIGHT - 70], col=(255, 114, 0), box=True, gray=(255, 114, 0), high=(255, 255, 0))
         self.create_text("SHOWBIZ", [322, HEIGHT - 70], col=(255, 114, 0), box=True, gray=(255, 114, 0), high=(255, 255, 0))
         self.create_text("SHIZ", [(WIDTH / 2) + 10, HEIGHT - 70], col=(255, 114, 0), box=True, gray=(255, 114, 0), high=(255, 255, 0))
         self.create_text("RIZZ", [842, HEIGHT - 70], col=(255, 114, 0), box=True, gray=(255, 114, 0), high=(255, 255, 0))
+        with open(cwd + "/Levels/BLundertale/" + level_name + ".txt", "r") as raw_file:
+            raw_read = level_name.read().split("\n\n")
+            self.FightTexts = raw_read[0].split("\n")
         self.all_sprites.add(AnimatedSprite((100, 100), (WIDTH/2, (HEIGHT/2) - 100), (255, 255, 255)))
 
     def game_loop(self):
         game = True
         fight = False
+        change = True
+        round_count = -1
         while game:  # Run until the user asks to quit
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:  # Did the user click the window close button?
@@ -929,8 +941,18 @@ class BlunderTale:
 
             screen.blit(background, (0, 0))
 
-            if not fight:  # Not fight phase
-                self.adjust_box(self.limits[0][0] - 50, 0)
+            if change:
+                if not fight:  # Not fight phase
+                    round_count += 1
+                    self.adjust_box(self.limits[0][0] - 50, 0)
+                    change = False
+                    try:
+                        round_text = self.FightTexts[round_count]
+                    except IndexError:
+                        round_text = "..."
+                    self.create_text(round_text, [self.limits[0][0] + 20, self.limits[0][1] + 20], large=False)
+                else:  # Fight phase
+                    change = False
 
             for s in self.all_sprites:
                 screen.blit(s.surf, s.rect)
@@ -943,12 +965,12 @@ class BlunderTale:
                         if self.texts[t][2] == self.texts[t][4]:  # Highlights it
                             self.texts[t][2] = self.texts[t][5]
                             self.create_text(self.texts[t][0], self.texts[t][1], col=self.texts[t][2], box=self.texts[t][3],
-                                             gray=self.texts[t][4], high=self.texts[t][5], change=[True, t])
+                                             gray=self.texts[t][4], high=self.texts[t][5], change=[True, t], large=self.texts[t][8])
                 else:
                     if self.texts[t][2] == self.texts[t][5]:  # Grays it
                         self.texts[t][2] = self.texts[t][4]
                         self.create_text(self.texts[t][0], self.texts[t][1], col=self.texts[t][2], box=self.texts[t][3],
-                                         gray=self.texts[t][4], high=self.texts[t][5], change=[True, t])
+                                         gray=self.texts[t][4], high=self.texts[t][5], change=[True, t], large=self.texts[t][8])
                 screen.blit(self.texts[t][6], self.texts[t][1])
             if fight:  # Fight phase
                 self.player.update(self.limits)

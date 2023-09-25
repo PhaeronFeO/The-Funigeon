@@ -1,0 +1,5 @@
+BLundertale level formatting:
+-Sections will be seperated by /n/n
+-The sections are in the following order:
+    -Opening text for each new turn
+    -Potential 'acts'
