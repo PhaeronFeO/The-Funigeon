@@ -924,8 +924,8 @@ class BlunderTale:
         self.create_text("SHOWBIZ", [322, HEIGHT - 70], col=(255, 114, 0), box=True, gray=(255, 114, 0), high=(255, 255, 0))
         self.create_text("SHIZ", [(WIDTH / 2) + 10, HEIGHT - 70], col=(255, 114, 0), box=True, gray=(255, 114, 0), high=(255, 255, 0))
         self.create_text("RIZZ", [842, HEIGHT - 70], col=(255, 114, 0), box=True, gray=(255, 114, 0), high=(255, 255, 0))
-        with open(cwd + "/Levels/BLundertale/" + level_name + ".txt", "r") as raw_file:
-            raw_read = level_name.read().split("\n\n")
+        with open(cwd + "/Levels/Blundertale/" + level_name + ".txt", "r") as raw_file:
+            raw_read = raw_file.read().split("\n\n")
             self.FightTexts = raw_read[0].split("\n")
         self.all_sprites.add(AnimatedSprite((100, 100), (WIDTH/2, (HEIGHT/2) - 100), (255, 255, 255)))
 
